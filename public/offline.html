@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Campus Navi - Offline</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #601214 0%, #8b1a1d 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    
+    .offline-container {
+      background: white;
+      border-radius: 24px;
+      padding: 40px 24px;
+      text-align: center;
+      max-width: 400px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    
+    .logo {
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, #601214 0%, #8b1a1d 100%);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      box-shadow: 0 8px 24px rgba(96, 18, 20, 0.3);
+    }
+    
+    .logo-text {
+      color: white;
+      font-weight: 900;
+      font-size: 10px;
+      text-align: center;
+      line-height: 1.2;
+      letter-spacing: 0.05em;
+    }
+    
+    h1 {
+      color: #1f2937;
+      font-size: 28px;
+      margin-bottom: 12px;
+      font-weight: 700;
+    }
+    
+    .offline-icon {
+      font-size: 64px;
+      margin: 24px 0;
+      opacity: 0.7;
+    }
+    
+    p {
+      color: #6b7280;
+      font-size: 16px;
+      line-height: 1.6;
+      margin-bottom: 8px;
+    }
+    
+    .info {
+      background: #f3f4f6;
+      border-left: 4px solid #601214;
+      padding: 16px;
+      margin: 24px 0;
+      text-align: left;
+      border-radius: 8px;
+    }
+    
+    .info h3 {
+      color: #601214;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    
+    .info ul {
+      list-style: none;
+      font-size: 14px;
+      color: #6b7280;
+    }
+    
+    .info li {
+      margin-bottom: 8px;
+      padding-left: 20px;
+      position: relative;
+    }
+    
+    .info li:before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: #16a34a;
+      font-weight: bold;
+    }
+    
+    button {
+      background: linear-gradient(135deg, #601214 0%, #8b1a1d 100%);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 16px;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 12px rgba(96, 18, 20, 0.2);
+    }
+    
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(96, 18, 20, 0.3);
+    }
+    
+    button:active {
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+  <div class="offline-container">
+    <div class="logo">
+      <div class="logo-text">CAMPUS<br>NAVI</div>
+    </div>
+    
+    <div class="offline-icon">📡</div>
+    
+    <h1>You're Offline</h1>
+    <p>Campus Navi is currently unavailable because you're not connected to the internet.</p>
+    
+    <div class="info">
+      <h3>What you can still access:</h3>
+      <ul>
+        <li>Previously loaded maps</li>
+        <li>Cached building information</li>
+        <li>Offline route planning</li>
+        <li>Saved announcements</li>
+      </ul>
+    </div>
+    
+    <p style="font-size: 14px; margin-top: 16px;">
+      <strong>Connection will be restored automatically when online.</strong>
+    </p>
+    
+    <button onclick="location.reload()">Try Again</button>
+  </div>
+  
+  <script>
+    window.addEventListener('online', () => {
+      console.log('Back online!');
+      location.reload();
+    });
+    
+    setInterval(() => {
+      fetch('/manifest.json', { method: 'HEAD' })
+        .then(() => {
+          console.log('Connection restored');
+          location.reload();
+        })
+        .catch(() => {
+          console.log('Still offline');
+        });
+    }, 5000);
+  </script>
+</body>
+</html>

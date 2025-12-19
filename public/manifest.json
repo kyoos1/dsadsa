@@ -1,0 +1,22 @@
+{
+  "name": "Campus Navi",
+  "short_name": "CampusNavi",
+  "description": "Interactive campus navigation system",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#601214",
+  "theme_color": "#601214",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
