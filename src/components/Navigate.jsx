@@ -26,6 +26,34 @@ const Navigate = ({ onNavigate }) => {
   const startPanRef = useRef({ x: 0, y: 0 });
   const SIMULATED_SPEED = 0.05;
 
+  // Road network hubs on WHITE PATHS (to avoid buildings)
+  const roadHubs = [
+    { id: 'entrance', name: 'Entrance', x: 400, y: 90 },
+    { id: 'quad', name: 'Central Quad', x: 400, y: 220 },
+    { id: 'plaza', name: 'Student Plaza', x: 400, y: 340 },
+    { id: 'parking', name: 'Parking Area', x: 400, y: 470 },
+    { id: 'admin_hub', name: 'Admin Hub', x: 130, y: 170 },
+    { id: 'lib_hub', name: 'Library Hub', x: 130, y: 320 },
+    { id: 'arts_hub', name: 'Arts Hub', x: 670, y: 170 },
+    { id: 'res_hub', name: 'Residential Hub', x: 670, y: 380 },
+    { id: 'sports_hub', name: 'Sports Hub', x: 130, y: 490 }
+  ];
+
+  // Define road connections (which hubs are connected by roads)
+  const getRoadConnections = () => {
+    return {
+      'entrance': ['quad'],
+      'quad': ['entrance', 'plaza', 'admin_hub', 'arts_hub'],
+      'plaza': ['quad', 'parking', 'lib_hub', 'res_hub'],
+      'parking': ['plaza', 'sports_hub'],
+      'admin_hub': ['quad', 'lib_hub'],
+      'lib_hub': ['admin_hub', 'plaza', 'sports_hub'],
+      'arts_hub': ['quad', 'res_hub'],
+      'res_hub': ['arts_hub', 'plaza'],
+      'sports_hub': ['lib_hub', 'parking']
+    };
+  };
+
   // --- MATCHING MASTER PLAN LAYOUT ---
   const campusZones = {
     entrance: { x: 300, y: 10, width: 200, height: 80, label: 'MAIN ENTRANCE', color: '#ef4444' },
@@ -44,7 +72,6 @@ const Navigate = ({ onNavigate }) => {
     const savedDest = localStorage.getItem('selectedDestination');
     if (savedDest) { setRoute(p => ({ ...p, destination: savedDest })); localStorage.removeItem('selectedDestination'); }
     
-    // Default Start Points relative to new map
     const startPoints = [
         { id: 'gate', name: 'Main Gate', x: 400, y: 50 },
         { id: 'quad', name: 'Central Quad', x: 400, y: 220 },
@@ -66,131 +93,56 @@ const Navigate = ({ onNavigate }) => {
 
   const getDistance = (p1, p2) => Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
 
-  // Check if a line segment intersects with a building
-  const lineIntersectsBuilding = (p1, p2, building) => {
-    const bx1 = building.x;
-    const by1 = building.y;
-    const bx2 = building.x + building.width;
-    const by2 = building.y + building.height;
+  // Find nearest road hub to a point
+  const findNearestHub = (point) => {
+    let nearest = roadHubs[0];
+    let minDist = getDistance(point, nearest);
     
-    // Expand hitbox slightly for safety
-    const padding = 5;
-    const px1 = bx1 - padding;
-    const py1 = by1 - padding;
-    const px2 = bx2 + padding;
-    const py2 = by2 + padding;
-
-    // Check if line segment intersects with building rectangle
-    return lineSegmentIntersectsRect(p1, p2, px1, py1, px2, py2);
-  };
-
-  const lineSegmentIntersectsRect = (p1, p2, rx1, ry1, rx2, ry2) => {
-    const { x: x1, y: y1 } = p1;
-    const { x: x2, y: y2 } = p2;
-
-    // Check if either endpoint is inside the rectangle
-    if (x1 >= rx1 && x1 <= rx2 && y1 >= ry1 && y1 <= ry2) return true;
-    if (x2 >= rx1 && x2 <= rx2 && y2 >= ry1 && y2 <= ry2) return true;
-
-    // Check intersection with each side of the rectangle
-    if (lineSegmentIntersectsSegment(p1, p2, { x: rx1, y: ry1 }, { x: rx2, y: ry1 })) return true;
-    if (lineSegmentIntersectsSegment(p1, p2, { x: rx2, y: ry1 }, { x: rx2, y: ry2 })) return true;
-    if (lineSegmentIntersectsSegment(p1, p2, { x: rx2, y: ry2 }, { x: rx1, y: ry2 })) return true;
-    if (lineSegmentIntersectsSegment(p1, p2, { x: rx1, y: ry2 }, { x: rx1, y: ry1 })) return true;
-
-    return false;
-  };
-
-  const lineSegmentIntersectsSegment = (p1, p2, p3, p4) => {
-    const ccw = (A, B, C) => (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x);
-    return ccw(p1, p3, p4) !== ccw(p2, p3, p4) && ccw(p1, p2, p3) !== ccw(p1, p2, p4);
-  };
-
-  // Get building corner points for waypoint generation
-  const getBuildingCorners = (building) => {
-    const padding = 8;
-    return [
-      { x: building.x - padding, y: building.y - padding },
-      { x: building.x + building.width + padding, y: building.y - padding },
-      { x: building.x + building.width + padding, y: building.y + building.height + padding },
-      { x: building.x - padding, y: building.y + building.height + padding }
-    ];
-  };
-
-  // A* pathfinding algorithm
-  const findPath = (start, goal) => {
-    // If direct path is clear, use it
-    const directBlocked = buildings.some(b => lineIntersectsBuilding(start, goal, b));
-    if (!directBlocked) {
-      console.log('✓ Direct path is clear');
-      return [start, goal];
-    }
-
-    console.log('✗ Direct path blocked, finding alternative...');
-
-    // Generate waypoints from building corners
-    const waypoints = [start];
-    buildings.forEach(b => {
-      getBuildingCorners(b).forEach(corner => waypoints.push(corner));
+    roadHubs.forEach(hub => {
+      const dist = getDistance(point, hub);
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = hub;
+      }
     });
-    waypoints.push(goal);
-
-    console.log('Generated', waypoints.length, 'waypoints');
-
-    // Build graph of connected waypoints
-    const graph = {};
-    waypoints.forEach((wp, i) => {
-      graph[i] = [];
-      waypoints.forEach((other, j) => {
-        if (i !== j && !buildings.some(b => lineIntersectsBuilding(wp, other, b))) {
-          graph[i].push(j);
-        }
-      });
-    });
-
-    // Dijkstra's algorithm
-    const distances = new Array(waypoints.length).fill(Infinity);
-    const previous = new Array(waypoints.length).fill(null);
-    const unvisited = new Set(waypoints.map((_, i) => i));
     
-    distances[0] = 0;
+    return nearest;
+  };
 
-    while (unvisited.size > 0) {
-      let nearest = null;
-      let minDist = Infinity;
-      
-      unvisited.forEach(i => {
-        if (distances[i] < minDist) {
-          minDist = distances[i];
-          nearest = i;
-        }
-      });
+  // BFS to find path through road network
+  const findPathThroughRoads = (start, goal) => {
+    const connections = getRoadConnections();
+    const queue = [[start.id]];
+    const visited = new Set([start.id]);
+    const parent = {};
 
-      if (nearest === null || nearest === waypoints.length - 1) break;
-      
-      unvisited.delete(nearest);
-      
-      graph[nearest].forEach(neighbor => {
-        if (unvisited.has(neighbor)) {
-          const dist = distances[nearest] + getDistance(waypoints[nearest], waypoints[neighbor]);
-          if (dist < distances[neighbor]) {
-            distances[neighbor] = dist;
-            previous[neighbor] = nearest;
-          }
+    while (queue.length > 0) {
+      const path = queue.shift();
+      const current = path[path.length - 1];
+
+      if (current === goal.id) {
+        // Reconstruct full path with coordinates
+        const fullPath = [start];
+        for (let i = 1; i < path.length; i++) {
+          const hubId = path[i];
+          const hub = roadHubs.find(h => h.id === hubId);
+          if (hub) fullPath.push(hub);
         }
-      });
+        fullPath.push(goal);
+        return fullPath;
+      }
+
+      const neighbors = connections[current] || [];
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          queue.push([...path, neighbor]);
+        }
+      }
     }
 
-    // Reconstruct path
-    const path = [];
-    let current_idx = waypoints.length - 1;
-    while (current_idx !== null) {
-      path.unshift(waypoints[current_idx]);
-      current_idx = previous[current_idx];
-    }
-
-    console.log('Final path:', path.length, 'points');
-    return path.length > 1 ? path : [start, goal];
+    // Fallback: direct path
+    return [start, goal];
   };
 
   const calculatePath = (start, destName) => {
@@ -198,12 +150,23 @@ const Navigate = ({ onNavigate }) => {
     const dest = buildings.find(b => b.building_name === destName);
     if (!dest) return [];
     
-    const target = { x: dest.x + dest.width/2, y: dest.y + dest.height/2 };
-    console.log('Calculating path from', start, 'to', target);
-    console.log('Buildings count:', buildings.length);
-    const path = findPath(start, target);
-    console.log('Path points:', path.length);
-    return path;
+    const destPoint = { x: dest.x + dest.width/2, y: dest.y + dest.height/2 };
+    
+    // Find nearest road hubs
+    const startHub = findNearestHub(start);
+    const endHub = findNearestHub(destPoint);
+    
+    console.log('Path: from', startHub.name, 'to', endHub.name);
+    
+    // Find path through road network
+    const roadPath = findPathThroughRoads(startHub, endHub);
+    
+    // Add final destination
+    const finalPath = [...roadPath];
+    finalPath[finalPath.length - 1] = destPoint;
+    
+    console.log('Route points:', finalPath.length);
+    return finalPath;
   };
 
   const startNavigation = () => {
@@ -287,6 +250,7 @@ const Navigate = ({ onNavigate }) => {
                    {buildings.map(b => <g key={b.id}><rect x={b.x} y={b.y} width={b.width} height={b.height} rx="4" fill={b.color} stroke="white" strokeWidth="1"/><text x={b.x+b.width/2} y={b.y+b.height/2} textAnchor="middle" fontSize="9" fill="white">{b.building_code}</text></g>)}
                    
                    {isNavigating && currentPathPoints.length > 0 && <polyline points={currentPathPoints.map(p => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#10b981" strokeWidth="4" strokeDasharray="5,5" />}
+                   
                    {userPosition && <g transform={`translate(${userPosition.x}, ${userPosition.y})`}><circle r="6" fill="#2563eb" stroke="white" strokeWidth="2" className="animate-pulse"/><circle r="12" fill="none" stroke="#2563eb" strokeOpacity="0.5"/></g>}
                 </svg>
              </div>
