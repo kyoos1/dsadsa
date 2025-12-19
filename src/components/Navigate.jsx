@@ -35,38 +35,32 @@ const Navigate = ({ onNavigate }) => {
     right: ['mid']
   };
 
-  // Map road lines to hubs
-  const roadToHub = {
-    top: 'top',
-    mid: 'mid',
-    left: 'left',
-    right: 'right',
-    center: 'mid'
-  };
-
   /* ================= HELPERS ================= */
 
   const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
 
-  // snap to nearest white road (axis-aligned) and include roadId
+  // snap to nearest white road (axis-aligned)
   const snapToRoad = (p) => {
     const roads = [
-      { id: 'top', type: 'h', y: 90 },
-      { id: 'mid', type: 'h', y: 340 },
-      { id: 'left', type: 'v', x: 230 },
-      { id: 'center', type: 'v', x: 400 },
-      { id: 'right', type: 'v', x: 570 }
+      { type: 'h', y: 90 },
+      { type: 'h', y: 340 },
+      { type: 'v', x: 230 },
+      { type: 'v', x: 400 },
+      { type: 'v', x: 570 }
     ];
 
     let best = null;
     let min = Infinity;
 
     roads.forEach(r => {
-      const s = r.type === 'h' ? { x: p.x, y: r.y } : { x: r.x, y: p.y };
+      const s = r.type === 'h'
+        ? { x: p.x, y: r.y }
+        : { x: r.x, y: p.y };
+
       const d = dist(p, s);
       if (d < min) {
         min = d;
-        best = { ...s, roadId: r.id };
+        best = s;
       }
     });
 
@@ -74,10 +68,14 @@ const Navigate = ({ onNavigate }) => {
   };
 
   // force L-shaped movement (NO diagonals)
-  const orthoPath = (from, to) => {
-    if (from.x === to.x || from.y === to.y) return [from, to];
-    return [from, { x: from.x, y: to.y }, to];
-  };
+  const orthoPath = (from, to) => ([
+    from,
+    { x: from.x, y: to.y },
+    to
+  ]);
+
+  const nearestHub = (p) =>
+    roadHubs.reduce((a, b) => dist(p, a) < dist(p, b) ? a : b);
 
   const bfsRoadPath = (start, end) => {
     const q = [[start.id]];
@@ -115,9 +113,8 @@ const Navigate = ({ onNavigate }) => {
     const startRoad = snapToRoad(start);
     const destRoad = snapToRoad(destPoint);
 
-    // Choose hubs based on the road the points are snapped to
-    const startHub = roadHubs.find(h => h.id === roadToHub[startRoad.roadId]);
-    const endHub = roadHubs.find(h => h.id === roadToHub[destRoad.roadId]);
+    const startHub = nearestHub(startRoad);
+    const endHub = nearestHub(destRoad);
 
     const roadPath = bfsRoadPath(startHub, endHub);
 
