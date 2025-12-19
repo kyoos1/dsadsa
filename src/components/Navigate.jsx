@@ -1,119 +1,105 @@
 // components/Navigate.jsx
 
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  ChevronLeft, MapPin, Navigation2, Play, RotateCcw, Plus, Minus
-} from 'lucide-react';
+import { ChevronLeft, Play, RotateCcw } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 
 const Navigate = ({ onNavigate }) => {
   const [route, setRoute] = useState({ start: '', destination: '' });
-  const [routeInfo, setRouteInfo] = useState(null);
-  const [isNavigating, setIsNavigating] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [buildings, setBuildings] = useState([]);
   const [userPosition, setUserPosition] = useState(null);
   const [availableStartPoints, setAvailableStartPoints] = useState([]);
-  const [scale, setScale] = useState(1);
-  const [panX, setPanX] = useState(0);
-  const [panY, setPanY] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [buildings, setBuildings] = useState([]);
   const [currentPathPoints, setCurrentPathPoints] = useState([]);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   const animationRef = useRef(null);
-  const startPanRef = useRef({ x: 0, y: 0 });
   const startTimeRef = useRef(null);
 
-  const SIMULATED_SPEED = 0.05;
+  const SPEED = 0.05;
 
-  /* ================= ROAD HUB NETWORK ================= */
+  /* ================= WHITE ROAD HUBS ================= */
 
   const roadHubs = [
-    { id: 'entrance', x: 400, y: 90 },
-    { id: 'quad', x: 400, y: 220 },
-    { id: 'plaza', x: 400, y: 340 },
-    { id: 'parking', x: 400, y: 470 },
-    { id: 'admin', x: 230, y: 170 },
-    { id: 'library', x: 230, y: 320 },
-    { id: 'arts', x: 570, y: 170 },
-    { id: 'res', x: 570, y: 380 },
-    { id: 'sports', x: 230, y: 490 }
+    { id: 'top', x: 400, y: 90 },
+    { id: 'mid', x: 400, y: 340 },
+    { id: 'bottom', x: 400, y: 470 },
+    { id: 'left', x: 230, y: 340 },
+    { id: 'right', x: 570, y: 340 }
   ];
 
   const roadConnections = {
-    entrance: ['quad'],
-    quad: ['entrance', 'plaza', 'admin', 'arts'],
-    plaza: ['quad', 'parking', 'library', 'res'],
-    parking: ['plaza', 'sports'],
-    admin: ['quad', 'library'],
-    library: ['admin', 'plaza', 'sports'],
-    arts: ['quad', 'res'],
-    res: ['arts', 'plaza'],
-    sports: ['library', 'parking']
+    top: ['mid'],
+    mid: ['top', 'bottom', 'left', 'right'],
+    bottom: ['mid'],
+    left: ['mid'],
+    right: ['mid']
   };
 
   /* ================= HELPERS ================= */
 
-  const getDistance = (a, b) =>
-    Math.hypot(b.x - a.x, b.y - a.y);
+  const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
 
-  // Snap any point onto nearest WHITE ROAD
-  const snapToRoad = (point) => {
+  // snap to nearest white road (axis-aligned)
+  const snapToRoad = (p) => {
     const roads = [
-      { type: 'horizontal', y: 90 },
-      { type: 'horizontal', y: 340 },
-      { type: 'vertical', x: 230 },
-      { type: 'vertical', x: 400 },
-      { type: 'vertical', x: 570 }
+      { type: 'h', y: 90 },
+      { type: 'h', y: 340 },
+      { type: 'v', x: 230 },
+      { type: 'v', x: 400 },
+      { type: 'v', x: 570 }
     ];
 
-    let closest = null;
+    let best = null;
     let min = Infinity;
 
     roads.forEach(r => {
-      const snapped = r.type === 'horizontal'
-        ? { x: point.x, y: r.y }
-        : { x: r.x, y: point.y };
+      const s = r.type === 'h'
+        ? { x: p.x, y: r.y }
+        : { x: r.x, y: p.y };
 
-      const d = getDistance(point, snapped);
+      const d = dist(p, s);
       if (d < min) {
         min = d;
-        closest = snapped;
+        best = s;
       }
     });
 
-    return closest;
+    return best;
   };
 
-  const findNearestHub = (point) => {
-    return roadHubs.reduce((a, b) =>
-      getDistance(point, a) < getDistance(point, b) ? a : b
-    );
-  };
+  // force L-shaped movement (NO diagonals)
+  const orthoPath = (from, to) => ([
+    from,
+    { x: from.x, y: to.y },
+    to
+  ]);
 
-  const findPathThroughRoads = (startHub, endHub) => {
-    const queue = [[startHub.id]];
-    const visited = new Set([startHub.id]);
+  const nearestHub = (p) =>
+    roadHubs.reduce((a, b) => dist(p, a) < dist(p, b) ? a : b);
 
-    while (queue.length) {
-      const path = queue.shift();
+  const bfsRoadPath = (start, end) => {
+    const q = [[start.id]];
+    const seen = new Set([start.id]);
+
+    while (q.length) {
+      const path = q.shift();
       const last = path[path.length - 1];
 
-      if (last === endHub.id) {
+      if (last === end.id) {
         return path.map(id => roadHubs.find(h => h.id === id));
       }
 
       for (const n of roadConnections[last] || []) {
-        if (!visited.has(n)) {
-          visited.add(n);
-          queue.push([...path, n]);
+        if (!seen.has(n)) {
+          seen.add(n);
+          q.push([...path, n]);
         }
       }
     }
     return [];
   };
 
-  /* ================= PATH CALCULATION (FIXED) ================= */
+  /* ================= PATH CALCULATION ================= */
 
   const calculatePath = (start, destName) => {
     const dest = buildings.find(b => b.building_name === destName);
@@ -124,21 +110,18 @@ const Navigate = ({ onNavigate }) => {
       y: dest.y + dest.height / 2
     };
 
-    // ✅ FORCE ENTRY & EXIT ON WHITE ROAD
     const startRoad = snapToRoad(start);
     const destRoad = snapToRoad(destPoint);
 
-    const startHub = findNearestHub(startRoad);
-    const endHub = findNearestHub(destRoad);
+    const startHub = nearestHub(startRoad);
+    const endHub = nearestHub(destRoad);
 
-    const roadPath = findPathThroughRoads(startHub, endHub);
+    const roadPath = bfsRoadPath(startHub, endHub);
 
     return [
-      start,
-      startRoad,
+      ...orthoPath(start, startRoad),
       ...roadPath,
-      destRoad,
-      destPoint
+      ...orthoPath(destRoad, destPoint).slice(1)
     ];
   };
 
@@ -150,46 +133,35 @@ const Navigate = ({ onNavigate }) => {
 
     setCurrentPathPoints(path);
     setIsNavigating(true);
-    setProgress(0);
     startTimeRef.current = null;
 
-    let dist = 0;
-    for (let i = 0; i < path.length - 1; i++) {
-      dist += getDistance(path[i], path[i + 1]);
-    }
-
-    setRouteInfo({
-      distance: `${Math.round(dist * 1.5)}m`,
-      time: `${Math.ceil(dist / 60)} min`
-    });
-
-    animationRef.current = requestAnimationFrame(animateMovement);
+    animationRef.current = requestAnimationFrame(move);
   };
 
-  const animateMovement = (time) => {
-    if (!startTimeRef.current) startTimeRef.current = time;
+  const move = (t) => {
+    if (!startTimeRef.current) startTimeRef.current = t;
 
-    const elapsed = time - startTimeRef.current;
-    const traveled = elapsed * SIMULATED_SPEED;
-    const path = currentPathPoints;
+    const elapsed = (t - startTimeRef.current) * SPEED;
+    let walked = 0;
 
-    let total = 0;
-    for (let i = 0; i < path.length - 1; i++) {
-      const seg = getDistance(path[i], path[i + 1]);
-      if (total + seg >= traveled) {
-        const t = (traveled - total) / seg;
+    for (let i = 0; i < currentPathPoints.length - 1; i++) {
+      const a = currentPathPoints[i];
+      const b = currentPathPoints[i + 1];
+      const d = dist(a, b);
+
+      if (walked + d >= elapsed) {
+        const r = (elapsed - walked) / d;
         setUserPosition({
-          x: path[i].x + (path[i + 1].x - path[i].x) * t,
-          y: path[i].y + (path[i + 1].y - path[i].y) * t
+          x: a.x + (b.x - a.x) * r,
+          y: a.y + (b.y - a.y) * r
         });
-        setProgress((traveled / (total + seg)) * 100);
-        animationRef.current = requestAnimationFrame(animateMovement);
+        animationRef.current = requestAnimationFrame(move);
         return;
       }
-      total += seg;
+      walked += d;
     }
 
-    setUserPosition(path[path.length - 1]);
+    setUserPosition(currentPathPoints.at(-1));
     setIsNavigating(false);
   };
 
@@ -197,21 +169,18 @@ const Navigate = ({ onNavigate }) => {
 
   useEffect(() => {
     supabase.from('buildings').select('*').then(({ data }) => {
-      setBuildings(
-        data.map(b => ({
-          ...b,
-          x: b.coordinates.x,
-          y: b.coordinates.y,
-          width: b.coordinates.width,
-          height: b.coordinates.height
-        }))
-      );
+      setBuildings(data.map(b => ({
+        ...b,
+        x: b.coordinates.x,
+        y: b.coordinates.y,
+        width: b.coordinates.width,
+        height: b.coordinates.height
+      })));
     });
 
     const starts = [
-      { id: 'gate', name: 'Main Gate', x: 400, y: 50 },
-      { id: 'quad', name: 'Central Quad', x: 400, y: 220 },
-      { id: 'parking', name: 'Parking Lot', x: 400, y: 520 }
+      { name: 'Gate', x: 400, y: 50 },
+      { name: 'Parking', x: 400, y: 520 }
     ];
 
     setAvailableStartPoints(starts);
@@ -222,49 +191,47 @@ const Navigate = ({ onNavigate }) => {
   /* ================= UI ================= */
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-100">
       <div className="bg-white p-4 shadow flex items-center">
         <button onClick={() => onNavigate('map')} className="mr-2">
           <ChevronLeft />
         </button>
-        <h1 className="font-bold text-lg">Navigation</h1>
+        <h1 className="font-bold">Navigation</h1>
       </div>
 
-      <div className="p-4 space-y-4">
-        <div className="bg-white p-4 rounded shadow">
-          <select
-            className="w-full mb-2"
-            value={route.destination}
-            onChange={e => setRoute({ ...route, destination: e.target.value })}
+      <div className="p-4 space-y-3">
+        <select
+          className="w-full p-2"
+          value={route.destination}
+          onChange={e => setRoute({ ...route, destination: e.target.value })}
+        >
+          <option value="">Select destination</option>
+          {buildings.map(b => (
+            <option key={b.id} value={b.building_name}>
+              {b.building_name}
+            </option>
+          ))}
+        </select>
+
+        {!isNavigating ? (
+          <button
+            onClick={startNavigation}
+            className="w-full bg-green-600 text-white p-2 rounded"
           >
-            <option value="">Select Destination</option>
-            {buildings.map(b => (
-              <option key={b.id} value={b.building_name}>
-                {b.building_name}
-              </option>
-            ))}
-          </select>
+            <Play size={16} /> Start
+          </button>
+        ) : (
+          <button
+            onClick={() => setIsNavigating(false)}
+            className="w-full bg-red-600 text-white p-2 rounded"
+          >
+            <RotateCcw size={16} /> Stop
+          </button>
+        )}
 
-          {!isNavigating ? (
-            <button
-              onClick={startNavigation}
-              className="w-full bg-green-600 text-white py-2 rounded"
-            >
-              <Play size={16} /> Start
-            </button>
-          ) : (
-            <button
-              onClick={() => setIsNavigating(false)}
-              className="w-full bg-red-600 text-white py-2 rounded"
-            >
-              <RotateCcw size={16} /> Stop
-            </button>
-          )}
-        </div>
-
-        <svg width="800" height="600" className="bg-gray-100 rounded">
+        <svg width="800" height="600" className="bg-white rounded">
           {/* WHITE ROADS */}
-          <g stroke="#e5e7eb" strokeWidth="20" fill="none">
+          <g stroke="#e5e7eb" strokeWidth="20">
             <line x1="20" y1="90" x2="780" y2="90" />
             <line x1="230" y1="90" x2="230" y2="590" />
             <line x1="400" y1="90" x2="400" y2="590" />
@@ -273,15 +240,13 @@ const Navigate = ({ onNavigate }) => {
           </g>
 
           {/* PATH */}
-          {currentPathPoints.length > 0 && (
-            <polyline
-              points={currentPathPoints.map(p => `${p.x},${p.y}`).join(' ')}
-              fill="none"
-              stroke="#10b981"
-              strokeWidth="4"
-              strokeDasharray="8 6"
-            />
-          )}
+          <polyline
+            points={currentPathPoints.map(p => `${p.x},${p.y}`).join(' ')}
+            fill="none"
+            stroke="#10b981"
+            strokeWidth="4"
+            strokeDasharray="6 6"
+          />
 
           {/* USER */}
           {userPosition && (
