@@ -66,19 +66,133 @@ const Navigate = ({ onNavigate }) => {
 
   const getDistance = (p1, p2) => Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
 
+  // Check if a line segment intersects with a building
+  const lineIntersectsBuilding = (p1, p2, building) => {
+    const bx1 = building.x;
+    const by1 = building.y;
+    const bx2 = building.x + building.width;
+    const by2 = building.y + building.height;
+    
+    // Expand hitbox slightly for safety
+    const padding = 5;
+    const px1 = bx1 - padding;
+    const py1 = by1 - padding;
+    const px2 = bx2 + padding;
+    const py2 = by2 + padding;
+
+    // Check if line segment intersects with building rectangle
+    return lineSegmentIntersectsRect(p1, p2, px1, py1, px2, py2);
+  };
+
+  const lineSegmentIntersectsRect = (p1, p2, rx1, ry1, rx2, ry2) => {
+    const { x: x1, y: y1 } = p1;
+    const { x: x2, y: y2 } = p2;
+
+    // Check if either endpoint is inside the rectangle
+    if (x1 >= rx1 && x1 <= rx2 && y1 >= ry1 && y1 <= ry2) return true;
+    if (x2 >= rx1 && x2 <= rx2 && y2 >= ry1 && y2 <= ry2) return true;
+
+    // Check intersection with each side of the rectangle
+    if (lineSegmentIntersectsSegment(p1, p2, { x: rx1, y: ry1 }, { x: rx2, y: ry1 })) return true;
+    if (lineSegmentIntersectsSegment(p1, p2, { x: rx2, y: ry1 }, { x: rx2, y: ry2 })) return true;
+    if (lineSegmentIntersectsSegment(p1, p2, { x: rx2, y: ry2 }, { x: rx1, y: ry2 })) return true;
+    if (lineSegmentIntersectsSegment(p1, p2, { x: rx1, y: ry2 }, { x: rx1, y: ry1 })) return true;
+
+    return false;
+  };
+
+  const lineSegmentIntersectsSegment = (p1, p2, p3, p4) => {
+    const ccw = (A, B, C) => (C.y - A.y) * (B.x - A.x) > (B.y - A.y) * (C.x - A.x);
+    return ccw(p1, p3, p4) !== ccw(p2, p3, p4) && ccw(p1, p2, p3) !== ccw(p1, p2, p4);
+  };
+
+  // Get building corner points for waypoint generation
+  const getBuildingCorners = (building) => {
+    const padding = 8;
+    return [
+      { x: building.x - padding, y: building.y - padding },
+      { x: building.x + building.width + padding, y: building.y - padding },
+      { x: building.x + building.width + padding, y: building.y + building.height + padding },
+      { x: building.x - padding, y: building.y + building.height + padding }
+    ];
+  };
+
+  // A* pathfinding algorithm
+  const findPath = (start, goal) => {
+    // If direct path is clear, use it
+    const directBlocked = buildings.some(b => lineIntersectsBuilding(start, goal, b));
+    if (!directBlocked) return [start, goal];
+
+    // Generate waypoints from building corners
+    const waypoints = [start];
+    buildings.forEach(b => {
+      getBuildingCorners(b).forEach(corner => waypoints.push(corner));
+    });
+    waypoints.push(goal);
+
+    // Build graph of connected waypoints
+    const graph = {};
+    waypoints.forEach((wp, i) => {
+      graph[i] = [];
+      waypoints.forEach((other, j) => {
+        if (i !== j && !buildings.some(b => lineIntersectsBuilding(wp, other, b))) {
+          graph[i].push(j);
+        }
+      });
+    });
+
+    // Dijkstra's algorithm
+    const distances = new Array(waypoints.length).fill(Infinity);
+    const previous = new Array(waypoints.length).fill(null);
+    const unvisited = new Set(waypoints.map((_, i) => i));
+    
+    distances[0] = 0;
+    let current = 0;
+
+    while (unvisited.size > 0) {
+      let nearest = null;
+      let minDist = Infinity;
+      
+      unvisited.forEach(i => {
+        if (distances[i] < minDist) {
+          minDist = distances[i];
+          nearest = i;
+        }
+      });
+
+      if (nearest === null || nearest === waypoints.length - 1) break;
+      
+      unvisited.delete(nearest);
+      
+      graph[nearest].forEach(neighbor => {
+        if (unvisited.has(neighbor)) {
+          const dist = distances[nearest] + getDistance(waypoints[nearest], waypoints[neighbor]);
+          if (dist < distances[neighbor]) {
+            distances[neighbor] = dist;
+            previous[neighbor] = nearest;
+          }
+        }
+      });
+    }
+
+    // Reconstruct path
+    const path = [];
+    let current_idx = waypoints.length - 1;
+    while (current_idx !== null) {
+      path.unshift(waypoints[current_idx]);
+      current_idx = previous[current_idx];
+    }
+
+    return path.length > 1 ? path : [start, goal];
+  };
+
   const calculatePath = (start, destName) => {
     if (!start || !destName) return [];
     const dest = buildings.find(b => b.building_name === destName);
     if (!dest) return [];
     
     const target = { x: dest.x + dest.width/2, y: dest.y + dest.height/2 };
-    const path = [start];
-    
-    // Add central intersection waypoint if crossing campus
-    if (getDistance(start, target) > 250) path.push({ x: 400, y: 340 }); // Student Plaza Hub
-    
-    path.push(target);
-    return path;
+    return findPath(start, target);
   };
 
   const startNavigation = () => {
@@ -88,8 +202,9 @@ const Navigate = ({ onNavigate }) => {
     setIsNavigating(true); setIsPaused(false); setProgress(0); setStartTime(null); setElapsedTime(0);
     animationRef.current = requestAnimationFrame(animateMovement);
     
-    const dist = getDistance(path[0], path[path.length-1]);
-    setRouteInfo({ distance: `${Math.round(dist*1.5)}m`, time: `${Math.ceil(dist/60)} min` });
+    let totalDist = 0;
+    for(let i=0; i<path.length-1; i++) totalDist += getDistance(path[i], path[i+1]);
+    setRouteInfo({ distance: `${Math.round(totalDist*1.5)}m`, time: `${Math.ceil(totalDist/60)} min` });
   };
 
   const animateMovement = (timestamp) => {
