@@ -121,7 +121,12 @@ const Navigate = ({ onNavigate }) => {
   const findPath = (start, goal) => {
     // If direct path is clear, use it
     const directBlocked = buildings.some(b => lineIntersectsBuilding(start, goal, b));
-    if (!directBlocked) return [start, goal];
+    if (!directBlocked) {
+      console.log('✓ Direct path is clear');
+      return [start, goal];
+    }
+
+    console.log('✗ Direct path blocked, finding alternative...');
 
     // Generate waypoints from building corners
     const waypoints = [start];
@@ -129,6 +134,8 @@ const Navigate = ({ onNavigate }) => {
       getBuildingCorners(b).forEach(corner => waypoints.push(corner));
     });
     waypoints.push(goal);
+
+    console.log('Generated', waypoints.length, 'waypoints');
 
     // Build graph of connected waypoints
     const graph = {};
@@ -147,7 +154,6 @@ const Navigate = ({ onNavigate }) => {
     const unvisited = new Set(waypoints.map((_, i) => i));
     
     distances[0] = 0;
-    let current = 0;
 
     while (unvisited.size > 0) {
       let nearest = null;
@@ -183,6 +189,7 @@ const Navigate = ({ onNavigate }) => {
       current_idx = previous[current_idx];
     }
 
+    console.log('Final path:', path.length, 'points');
     return path.length > 1 ? path : [start, goal];
   };
 
@@ -192,7 +199,11 @@ const Navigate = ({ onNavigate }) => {
     if (!dest) return [];
     
     const target = { x: dest.x + dest.width/2, y: dest.y + dest.height/2 };
-    return findPath(start, target);
+    console.log('Calculating path from', start, 'to', target);
+    console.log('Buildings count:', buildings.length);
+    const path = findPath(start, target);
+    console.log('Path points:', path.length);
+    return path;
   };
 
   const startNavigation = () => {
